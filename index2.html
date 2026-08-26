@@ -1,0 +1,510 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>わたしのARシーン</title>
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+<meta http-equiv="Pragma" content="no-cache">
+<meta http-equiv="Expires" content="0">
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="theme-color" content="#14161A">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<script src="https://aframe.io/releases/1.3.0/aframe.min.js"></script>
+<script src="https://cdn.jsdelivr.net/gh/AR-js-org/AR.js@3.4.5/aframe/build/aframe-ar.js"></script>
+<style>
+  body{margin:0;padding:0;overflow:hidden;
+    font-family:system-ui,-apple-system,"Hiragino Sans",sans-serif}
+  #hint{position:fixed;left:50%;bottom:22px;transform:translateX(-50%);z-index:10;
+    background:rgba(20,22,26,.78);color:#fff;padding:9px 16px;border-radius:999px;font-size:13px}
+  #filenote{display:none;position:fixed;left:12px;right:12px;top:12px;z-index:120;
+    background:#14161A;color:#E4E5DF;border-left:4px solid #E8451F;padding:14px 16px;
+    border-radius:4px;font-size:12.5px;line-height:1.7}
+  #filenote b{display:block;font-size:13.5px;margin-bottom:4px}
+  #filenote button{margin-top:10px;background:none;border:1px solid #4A5260;color:#E4E5DF;
+    padding:6px 12px;border-radius:3px;font-size:12px}
+  #arstat{position:fixed;left:12px;top:12px;z-index:125;max-width:calc(100% - 24px);
+    background:rgba(20,22,26,.82);color:#E4E5DF;border-left:4px solid #E8451F;
+    padding:8px 12px;border-radius:4px;font-size:11.5px;line-height:1.5}
+  #camnote{display:none;position:fixed;left:12px;right:12px;bottom:70px;z-index:130;
+    background:#14161A;color:#E4E5DF;border-left:4px solid #E8451F;padding:14px 16px;
+    border-radius:4px;font-size:12.5px;line-height:1.7}
+  #camnote b{display:block;font-size:13.5px;margin-bottom:4px}
+  #camnote button{margin-top:10px;background:none;border:1px solid #4A5260;color:#E4E5DF;
+    padding:6px 12px;border-radius:3px;font-size:12px}
+  #arstart{position:fixed;inset:0;z-index:220;display:flex;align-items:center;justify-content:center;
+    background:rgba(20,22,26,.90);color:#E4E5DF;padding:24px;box-sizing:border-box}
+  #arstart[hidden]{display:none}
+  #arstart .card{width:min(92vw,390px);text-align:center}
+  #arstart .mark{width:44px;height:44px;border:3px solid #E4E5DF;margin:0 auto 16px;position:relative}
+  #arstart .mark:after{content:"";position:absolute;right:5px;top:5px;width:11px;height:11px;background:#E8451F}
+  #arstart h1{font-size:20px;margin:0 0 8px}
+  #arstart p{font-size:13px;line-height:1.8;color:#B9C0C9;margin:0 0 16px}
+  #arstart button{border:0;background:#E8451F;color:#fff;padding:13px 18px;border-radius:4px;
+    font-size:14px;font-weight:800;width:100%}
+  #arstart button:disabled{opacity:.55}
+  #arstart small{display:block;margin-top:10px;color:#8F98A5;font-size:11px;line-height:1.6}
+  #sound{display:none;position:fixed;right:12px;top:12px;z-index:110;border:0;
+    background:rgba(20,22,26,.82);color:#fff;padding:10px 14px;border-radius:999px;
+    font-size:13px;font-weight:700}
+</style>
+</head>
+<body>
+<script>
+AFRAME.registerComponent("overlap-safe",{
+  schema:{order:{type:"number",default:0}},
+  init:function(){
+    var self=this;
+    this.el.addEventListener("object3dset",function(){self.apply();});
+    this.el.addEventListener("model-loaded",function(){self.apply();});
+    setTimeout(function(){self.apply();},0);
+  },
+  update:function(){this.apply();},
+  apply:function(){
+    var root=this.el.object3D;if(!root)return;
+    var rank=Math.max(1,this.data.order||1);
+    var order=20+rank;
+    var bias=Math.min(1.8,.08+Math.min(1.7,rank*.08));
+    root.renderOrder=order;
+    root.traverse(function(c){
+      if(!c.isMesh)return;
+      c.renderOrder=order;
+      var mats=Array.isArray(c.material)?c.material:[c.material];
+      mats.forEach(function(m){
+        if(!m)return;
+        var translucent=m.transparent||(m.opacity!=null&&m.opacity<.999);
+        m.depthTest=true;
+        m.depthWrite=!translucent;
+        m.polygonOffset=true;
+        m.polygonOffsetFactor=-bias;
+        m.polygonOffsetUnits=-bias;
+        if(m.map&&translucent)m.alphaTest=Math.max(m.alphaTest||0,.002);
+        m.needsUpdate=true;
+      });
+    });
+  }
+});
+</script>
+<script>
+AFRAME.registerComponent("ar-motion", {
+  schema:{
+    type:{default:"none"}, speed:{type:"number",default:1}, amount:{type:"number",default:1},
+    px:{type:"number",default:0}, py:{type:"number",default:0}, pz:{type:"number",default:0},
+    brx:{type:"number",default:0}, bry:{type:"number",default:0}, brz:{type:"number",default:0},
+    baseScale:{type:"number",default:1},
+    mx:{type:"number",default:.45}, my:{type:"number",default:.2}, mz:{type:"number",default:.25},
+    mrx:{type:"number",default:0}, mry:{type:"number",default:90}, mrz:{type:"number",default:0},
+    path:{default:""},
+    start:{type:"number",default:0}, duration:{type:"number",default:30},
+    edgeIn:{default:"none"}, edgeInDur:{type:"number",default:.6},
+    edgeOut:{default:"none"}, edgeOutDur:{type:"number",default:.6},
+    sceneDuration:{type:"number",default:30}
+  },
+  _free:function(s,u){
+    if(!s)return [0,0];
+    var ps=s.split("|").map(function(x){var a=x.split(",");return [parseFloat(a[0])||0,parseFloat(a[1])||0];});
+    if(ps.length<2)return [0,0];
+    u=Math.max(0,Math.min(1,u));var ls=[],total=0;
+    for(var i=1;i<ps.length;i++){var dx=ps[i][0]-ps[i-1][0],dz=ps[i][1]-ps[i-1][1],l=Math.sqrt(dx*dx+dz*dz);ls.push(l);total+=l;}
+    if(total<=0)return ps[0];var target=u*total,acc=0;
+    for(var j=0;j<ls.length;j++){if(target<=acc+ls[j]||j===ls.length-1){var q=ls[j]?(target-acc)/ls[j]:0;return [ps[j][0]+(ps[j+1][0]-ps[j][0])*q,ps[j][1]+(ps[j+1][1]-ps[j][1])*q];}acc+=ls[j];}
+    return [0,0];
+  },
+  _path:function(points,u){
+    u=((u%1)+1)%1;
+    var n=points.length,f=u*n,i=Math.floor(f)%n,j=(i+1)%n,q=f-Math.floor(f);
+    return [points[i][0]+(points[j][0]-points[i][0])*q,
+            points[i][1]+(points[j][1]-points[i][1])*q,
+            points[i][2]+(points[j][2]-points[i][2])*q];
+  },
+  _clamp:function(v){return Math.max(0,Math.min(1,v));},
+  _easeOut:function(v){v=this._clamp(v);return 1-Math.pow(1-v,3);},
+  _easeIn:function(v){v=this._clamp(v);return v*v*v;},
+  _easeBack:function(v){v=this._clamp(v);var c1=1.70158,c3=c1+1;return 1+c3*Math.pow(v-1,3)+c1*Math.pow(v-1,2);},
+  _entry:function(t,sp){return this._easeOut(((t*sp)%4)/1.15);},
+  _exit:function(t,sp){return this._easeIn((((t*sp)%4)-2.25)/1.15);},
+  _exitVisible:function(t,sp){return ((t*sp)%4)<3.55;},
+  _opacity:function(root,f){
+    f=this._clamp(f);
+    if(!root||!root.traverse)return;
+    root.traverse(function(c){
+      if(!c.material)return;
+      var arr=Array.isArray(c.material)?c.material:[c.material];
+      arr.forEach(function(m){
+        if(m.__arMotionOpacity==null)m.__arMotionOpacity=(m.opacity==null?1:m.opacity);
+        m.opacity=m.__arMotionOpacity*f;
+        m.transparent=m.transparent||m.opacity<1;
+        m.needsUpdate=true;
+      });
+    });
+  },
+  _mulOpacity:function(root,f){
+    f=this._clamp(f);if(!root||!root.traverse)return;
+    root.traverse(function(c){if(!c.material)return;var arr=Array.isArray(c.material)?c.material:[c.material];
+      arr.forEach(function(m){if(!m)return;m.opacity=(m.opacity==null?1:m.opacity)*f;m.transparent=m.transparent||m.opacity<1;m.needsUpdate=true;});});
+  },
+  _edge:function(o,t,d,a,D){
+    var f=1,p,q,sc,dur=Math.max(.1,d.duration||.1);
+    if(d.edgeIn!=="none"&&t<d.edgeInDur){
+      p=this._easeOut(t/Math.max(.1,d.edgeInDur));
+      switch(d.edgeIn){
+        case "flyInLeft":o.position.x-=(1-p)*1.25*a;break;case "flyInRight":o.position.x+=(1-p)*1.25*a;break;
+        case "flyInUp":o.position.y+=(1-p)*.95*a;break;case "flyInDown":o.position.y-=(1-p)*.95*a;break;
+        case "zoomIn":o.scale.multiplyScalar(.12+.88*p);break;case "swivelIn":o.rotation.y+=(1-p)*Math.PI*a;break;
+        case "bounceIn":sc=.15+.85*this._easeBack(p);o.scale.multiplyScalar(Math.max(.05,sc));break;
+        case "floatIn":o.position.y-=(1-p)*.65*a;o.position.x-=(1-p)*.12*a;break;
+        case "wipeInX":o.scale.x*=Math.max(.02,p);o.position.x-=(1-p)*.24*a;break;
+        case "wipeInY":o.scale.y*=Math.max(.02,p);o.position.y-=(1-p)*.24*a;break;
+      }f*=p;
+    }
+    if(d.edgeOut!=="none"&&t>dur-d.edgeOutDur){
+      q=this._easeIn((t-(dur-d.edgeOutDur))/Math.max(.1,d.edgeOutDur));
+      switch(d.edgeOut){
+        case "flyOutLeft":o.position.x-=q*1.25*a;break;case "flyOutRight":o.position.x+=q*1.25*a;break;
+        case "flyOutUp":o.position.y+=q*.95*a;break;case "flyOutDown":o.position.y-=q*.95*a;break;
+        case "zoomOut":o.scale.multiplyScalar(1+.9*q*a);break;case "shrinkOut":o.scale.multiplyScalar(Math.max(.03,1-q));break;
+        case "swivelOut":o.rotation.y+=q*Math.PI*a;break;
+      }f*=1-q;
+    }
+    if(f<.9999)this._mulOpacity(o,f);
+  },
+  tick:function(ms){
+    var d=this.data, o=this.el.object3D, sceneDur=Math.max(.1,d.sceneDuration||30);
+    var sceneT=(ms/1000)%sceneDur;
+    var active=sceneT>=d.start && sceneT<(d.start+d.duration);
+    if(!active){o.visible=false;return;}
+    var t=Math.max(0,sceneT-d.start), sp=d.speed||1, a=d.amount||1;
+    var p=t*sp*2, u=(t*sp/4)%1, q,pt, D=Math.PI/180,ep,xp,sc,cyc;
+    o.position.set(d.px,d.py,d.pz);
+    o.rotation.set(d.brx*D,d.bry*D,d.brz*D);
+    o.scale.set(d.baseScale,d.baseScale,d.baseScale);
+    o.visible=true;
+    this._opacity(o,1);
+    switch(d.type){
+      case "spin": o.rotation.y += t*sp*.9; break;
+      case "float": o.position.y += .1 + Math.sin(p)*.1*a; break;
+      case "pulse": q=1+Math.sin(t*sp*2.5)*.12*a; o.scale.set(d.baseScale*q,d.baseScale*q,d.baseScale*q); break;
+      case "zigzag":
+        pt=this._path([[-.45*a,0,-.45*a],[.45*a,0,-.15*a],[-.45*a,0,.15*a],[.45*a,0,.45*a]],u);
+        o.position.x+=pt[0];o.position.z+=pt[2];break;
+      case "square":
+        pt=this._path([[-.4*a,0,-.4*a],[.4*a,0,-.4*a],[.4*a,0,.4*a],[-.4*a,0,.4*a]],u);
+        o.position.x+=pt[0];o.position.z+=pt[2];break;
+      case "circle": o.position.x+=Math.cos(p)*.4*a;o.position.z+=Math.sin(p)*.4*a;break;
+      case "custom":
+        q=Math.sin(p);o.position.x+=d.mx*q;o.position.y+=d.my*q;o.position.z+=d.mz*q;
+        o.rotation.x+=d.mrx*D*q;o.rotation.y+=d.mry*D*q;o.rotation.z+=d.mrz*D*q;break;
+      case "freehand":
+        if(d.path){var fu=(t*sp/4)%2;if(fu>1)fu=2-fu;var fp=this._free(d.path,fu);o.position.x+=fp[0]*2*a;o.position.z+=fp[1]*2*a;}break;
+      case "blink": o.visible=(Math.floor(t*sp*4)%2)===0;break;
+      case "sway": o.rotation.z+=Math.sin(p)*18*D*a;break;
+      case "bounce": o.position.y+=Math.abs(Math.sin(p))*.35*a;break;
+      case "slideX": o.position.x+=Math.sin(p)*.5*a;break;
+      case "slideZ": o.position.z+=Math.sin(p)*.5*a;break;
+      case "figure8": o.position.x+=Math.sin(p)*.45*a;o.position.z+=Math.sin(p*2)*.24*a;break;
+      case "spiral": o.position.x+=Math.cos(p)*.34*a;o.position.z+=Math.sin(p)*.34*a;o.position.y+=Math.sin(p*.5)*.25*a;break;
+      case "verticalCircle": o.position.x+=Math.cos(p)*.35*a;o.position.y+=Math.sin(p)*.35*a;break;
+      case "shake":
+        o.position.x+=Math.sin(p*11)*.035*a;o.position.y+=Math.sin(p*17)*.025*a;
+        o.position.z+=Math.cos(p*13)*.03*a;o.rotation.z+=Math.sin(p*19)*2.5*D*a;break;
+      case "nod": o.rotation.x+=Math.sin(p)*22*D*a;break;
+      case "flip": o.rotation.x+=t*sp*1.2;break;
+      case "diagonal": o.position.x+=Math.sin(p)*.42*a;o.position.y+=Math.sin(p)*.28*a;break;
+      case "fadeIn":ep=this._entry(t,sp);this._opacity(o,ep);break;
+      case "appear":cyc=(t*sp)%4;o.visible=cyc>=.28;break;
+      case "flyInLeft":ep=this._entry(t,sp);o.position.x-=(1-ep)*1.25*a;this._opacity(o,ep);break;
+      case "flyInRight":ep=this._entry(t,sp);o.position.x+=(1-ep)*1.25*a;this._opacity(o,ep);break;
+      case "flyInUp":ep=this._entry(t,sp);o.position.y+=(1-ep)*.95*a;this._opacity(o,ep);break;
+      case "flyInDown":ep=this._entry(t,sp);o.position.y-=(1-ep)*.95*a;this._opacity(o,ep);break;
+      case "zoomIn":ep=this._entry(t,sp);sc=.12+.88*ep;o.scale.set(d.baseScale*sc,d.baseScale*sc,d.baseScale*sc);this._opacity(o,ep);break;
+      case "swivelIn":ep=this._entry(t,sp);o.rotation.y+=(1-ep)*Math.PI*a;this._opacity(o,ep);break;
+      case "bounceIn":cyc=(t*sp)%4;ep=this._clamp(cyc/1.2);sc=.15+.85*this._easeBack(ep);sc=Math.max(.05,sc);o.scale.set(d.baseScale*sc,d.baseScale*sc,d.baseScale*sc);this._opacity(o,this._easeOut(ep));break;
+      case "floatIn":ep=this._entry(t,sp);o.position.y-=(1-ep)*.65*a;o.position.x-=(1-ep)*.12*a;this._opacity(o,ep);break;
+      case "wipeInX":ep=this._entry(t,sp);o.scale.x=d.baseScale*Math.max(.02,ep);o.position.x-=(1-ep)*.24*a;this._opacity(o,Math.min(1,ep*1.4));break;
+      case "wipeInY":ep=this._entry(t,sp);o.scale.y=d.baseScale*Math.max(.02,ep);o.position.y-=(1-ep)*.24*a;this._opacity(o,Math.min(1,ep*1.4));break;
+      case "teeter":o.rotation.z+=Math.sin(p*2.1)*10*D*a;break;
+      case "wobble":o.position.x+=Math.sin(p*1.7)*.13*a;o.rotation.z+=Math.sin(p*2.6)*13*D*a;break;
+      case "swing":o.rotation.z+=Math.sin(p*.9)*24*D*a;o.position.x+=Math.sin(p*.9)*.04*a;break;
+      case "heartbeat":q=(t*sp)%1.6;var h1=Math.exp(-Math.pow((q-.25)/.10,2)),h2=Math.exp(-Math.pow((q-.52)/.12,2));sc=1+(h1*.20+h2*.12)*a;o.scale.set(d.baseScale*sc,d.baseScale*sc,d.baseScale*sc);break;
+      case "fadeOut":xp=this._exit(t,sp);this._opacity(o,1-xp);o.visible=this._exitVisible(t,sp);break;
+      case "flyOutLeft":xp=this._exit(t,sp);o.position.x-=xp*1.25*a;this._opacity(o,1-xp);o.visible=this._exitVisible(t,sp);break;
+      case "flyOutRight":xp=this._exit(t,sp);o.position.x+=xp*1.25*a;this._opacity(o,1-xp);o.visible=this._exitVisible(t,sp);break;
+      case "flyOutUp":xp=this._exit(t,sp);o.position.y+=xp*.95*a;this._opacity(o,1-xp);o.visible=this._exitVisible(t,sp);break;
+      case "flyOutDown":xp=this._exit(t,sp);o.position.y-=xp*.95*a;this._opacity(o,1-xp);o.visible=this._exitVisible(t,sp);break;
+      case "zoomOut":xp=this._exit(t,sp);sc=1+.9*xp*a;o.scale.set(d.baseScale*sc,d.baseScale*sc,d.baseScale*sc);this._opacity(o,1-xp);o.visible=this._exitVisible(t,sp);break;
+      case "shrinkOut":xp=this._exit(t,sp);sc=Math.max(.03,1-xp);o.scale.set(d.baseScale*sc,d.baseScale*sc,d.baseScale*sc);this._opacity(o,1-xp);o.visible=this._exitVisible(t,sp);break;
+      case "swivelOut":xp=this._exit(t,sp);o.rotation.y+=xp*Math.PI*a;this._opacity(o,1-xp);o.visible=this._exitVisible(t,sp);break;
+    }
+    this._edge(o,t,d,a,D);
+  }
+});
+</script>
+<div id="hint">マーカーにカメラを向けてください</div>
+<!-- マーカーの絵がまだ用意されていないため、Hiroマーカーで書き出しています -->
+<a-scene embedded vr-mode-ui="enabled: false"
+  renderer="colorManagement: true; antialias: true"
+  arjs="sourceType: webcam; trackingMethod: best; debugUIEnabled: false; detectionMode: mono; labelingMode: black_region; patternRatio: 0.5; sourceWidth: 1280; sourceHeight: 960; displayWidth: 1280; displayHeight: 960; canvasWidth: 1024; canvasHeight: 768; maxDetectionRate: 60; imageSmoothingEnabled: true;">
+    <a-entity light="type: ambient; color: #ffffff; intensity: 0.35"></a-entity>
+    <a-marker emitevents="true" preset="hiro">
+      <a-entity light="type: hemisphere; color: #ffffff; groundColor: #2a2f3a; intensity: 0.95"></a-entity>
+      <a-entity light="type: directional; color: #ffffff; intensity: 0.75; castShadow: false" position="3 6 4"></a-entity>
+      <a-entity light="type: directional; color: #8fb4ff; intensity: 0.25; castShadow: false" position="-4 2 -3"></a-entity>
+      <!-- まだオブジェクトがありません -->
+    </a-marker>
+    <a-marker emitevents="true" preset="hiro">
+      <a-entity light="type: hemisphere; color: #ffffff; groundColor: #2a2f3a; intensity: 0.95"></a-entity>
+      <a-entity light="type: directional; color: #ffffff; intensity: 0.75; castShadow: false" position="3 6 4"></a-entity>
+      <a-entity light="type: directional; color: #8fb4ff; intensity: 0.25; castShadow: false" position="-4 2 -3"></a-entity>
+      <!-- まだオブジェクトがありません -->
+    </a-marker>
+    <a-marker emitevents="true" preset="kanji">
+      <a-entity light="type: hemisphere; color: #ffffff; groundColor: #2a2f3a; intensity: 0.95"></a-entity>
+      <a-entity light="type: directional; color: #ffffff; intensity: 0.75; castShadow: false" position="3 6 4"></a-entity>
+      <a-entity light="type: directional; color: #8fb4ff; intensity: 0.25; castShadow: false" position="-4 2 -3"></a-entity>
+      <!-- まだオブジェクトがありません -->
+    </a-marker>
+    <a-entity camera cursor="rayOrigin: mouse; fuse: false" raycaster="objects: .ar-audio-target"></a-entity>
+</a-scene>
+<script>
+  (function(){
+    var tunedTrack=null, torchOn=false;
+    function tuneCamera(){
+      var v=document.getElementById("arjs-video");
+      if(!v || !v.srcObject || !v.srcObject.getVideoTracks) return false;
+      var tr=v.srcObject.getVideoTracks()[0];
+      if(!tr) return false;
+      if(tr===tunedTrack) return true;
+      tunedTrack=tr;
+      try{
+        var cap=tr.getCapabilities ? tr.getCapabilities() : {};
+        var adv={};
+        if(cap.focusMode && cap.focusMode.indexOf("continuous")>=0) adv.focusMode="continuous";
+        if(cap.exposureMode && cap.exposureMode.indexOf("continuous")>=0) adv.exposureMode="continuous";
+        if(cap.whiteBalanceMode && cap.whiteBalanceMode.indexOf("continuous")>=0) adv.whiteBalanceMode="continuous";
+        if(Object.keys(adv).length && tr.applyConstraints){
+          tr.applyConstraints({advanced:[adv]}).catch(function(){});
+        }
+        if(cap.torch && tr.applyConstraints && !document.getElementById("arTorch")){
+          var b=document.createElement("button");
+          b.id="arTorch"; b.type="button"; b.textContent="💡 ライト";
+          b.style.cssText="position:fixed;left:12px;top:12px;z-index:230;border:0;background:rgba(20,22,26,.82);color:#fff;padding:10px 13px;border-radius:999px;font-size:13px;font-weight:700";
+          b.addEventListener("click",function(){
+            torchOn=!torchOn;
+            tr.applyConstraints({advanced:[{torch:torchOn}]}).then(function(){
+              b.textContent=torchOn ? "💡 ライトON" : "💡 ライト";
+            }).catch(function(){torchOn=false;});
+          });
+          document.body.appendChild(b);
+        }
+      }catch(e){}
+      return true;
+    }
+    window.addEventListener("arjs-video-loaded",function(){setTimeout(tuneCamera,80);setTimeout(tuneCamera,500);});
+    var n=0,timer=setInterval(function(){n++;if(tuneCamera()||n>40)clearInterval(timer);},250);
+  })();
+</script>
+<div id="arstat">よみこみ中…</div>
+<div id="camnote">
+  <b id="camtitle">カメラが始まりません</b>
+  <span id="camwhy"></span>
+  <button id="camx">とじる</button>
+</div>
+<script>
+  var arNoteShown = false, markerSeen = false;
+  function arNote(title, why){
+    if(arNoteShown) return;
+    arNoteShown = true;
+    document.getElementById("camtitle").textContent = title;
+    document.getElementById("camwhy").textContent = why;
+    document.getElementById("camnote").style.display = "block";
+  }
+  function camReason(){
+    if(location.protocol === "file:") return "ファイルから直接ひらいています。https のページか localhost で開いてください。";
+    if(location.protocol !== "https:" && location.hostname !== "localhost" && location.hostname !== "127.0.0.1"){
+      return "https のページではありません。カメラは https か localhost でしか使えません。";
+    }
+    if(!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia){
+      return "このブラウザはカメラに対応していません。SafariかChromeでお試しください。";
+    }
+    return "カメラの利用が許可されていないか、他のアプリが使っている可能性があります。ページを再読み込みして「許可」を選んでください。";
+  }
+  /* AR.js works out the video size when it first has one, but on
+     phones the metadata often arrives late and the layout is left
+     at a stale size. Nudging a resize once the feed is really
+     running makes it lay the video and canvas out together. */
+  function nudge(){ try{ window.dispatchEvent(new Event("resize")); }catch(e){} }
+  function watchCamera(){
+    var tries = 0;
+    var timer = setInterval(function(){
+      tries++;
+      var v = document.getElementById("arjs-video");
+      if(v && v.videoWidth > 0){
+        clearInterval(timer);
+        stat("カメラOK " + v.videoWidth + "x" + v.videoHeight + " / マーカーをさがしています", false);
+        nudge();
+        setTimeout(nudge, 400);
+        setTimeout(nudge, 1200);
+        return;
+      }
+      if(tries >= 16){ clearInterval(timer); arNote("カメラが始まりません", camReason()); }
+    }, 500);
+  }
+  window.addEventListener("orientationchange", function(){ setTimeout(nudge, 350); setTimeout(nudge, 900); });
+  function watchScene(){
+    var sc = document.querySelector("a-scene");
+    if(!sc){ setTimeout(watchScene, 400); return; }
+    var t0 = Date.now();
+    var timer = setInterval(function(){
+      if(sc.hasLoaded){
+        clearInterval(timer);
+        var n = sc.querySelectorAll("a-marker *").length;
+        stat("中身よみこみ完了（" + n + "個）/ マーカーをさがしています", false);
+        watchMarker(sc);
+        return;
+      }
+      if(Date.now() - t0 > 14000){
+        clearInterval(timer);
+        arNote("中身の読み込みが終わりません", "動画や画像が重いか、通信が届いていません。動画を「軽くする」で小さくするか、通信を確認してください。");
+      }
+    }, 400);
+  }
+  /* One blurred frame, a passing shadow or a steep angle is enough
+     for the tracker to drop the marker for a moment. Hiding the
+     content the instant that happens is what makes it look like it
+     "does not show at some angles". Keep the last good pose on
+     screen for a short grace period instead. */
+  var HOLD_MS = 1400, lostAt = 0, everFound = false, holding = false;
+  function holdMarker(m){
+    m.addEventListener("markerFound", function(){ everFound = true; lostAt = 0; });
+    m.addEventListener("markerLost", function(){ lostAt = Date.now(); });
+    if(holding) return;
+    holding = true;
+    (function loop(){
+      requestAnimationFrame(loop);
+      if(!everFound || !lostAt) return;
+      if(Date.now() - lostAt < HOLD_MS){
+        if(m.object3D && !m.object3D.visible) m.object3D.visible = true;
+      }
+    })();
+  }
+  function watchMarker(sc){
+    var m = sc.querySelector("a-marker");
+    if(!m) return;
+    holdMarker(m);
+    m.addEventListener("markerFound", function(){
+      markerSeen = true;
+      stat("マーカーを見つけました", true);
+      statFade();
+      document.getElementById("camnote").style.display = "none";
+    });
+    m.addEventListener("markerLost", function(){
+      if(!statHide) stat("マーカーを見失いました", false);
+    });
+    setTimeout(function(){
+      if(markerSeen) return;
+      arNote("マーカーが見つかりません",
+        "カメラは動いています。読み取り方法を順に試しています。" +
+        "黒いふちが灰色っぽい・すじが入っている印刷は認識できません。" +
+        "インクを十分にして印刷し直すのがいちばん確実です。" +
+        "そのほか、黒いふちが画面から切れている、紙が反射している、" +
+        "印刷が小さすぎる場合も読み取れません。");
+    }, 11000);
+  }
+  /* ARToolkit compares each frame against one fixed brightness cut
+     by default. Looking straight down, the phone shades the paper and
+     the whole marker lands on one side of that cut, so nothing is
+     found. Switching to a per-frame automatic threshold makes it
+     adapt to the light it is actually given. */
+  /* The printed square in front of the camera is often not the solid
+     black the tracker assumes: toner-saving prints come out grey and
+     banded, and glare lifts one half of the sheet. One fixed way of
+     deciding black from white cannot cope with all of that, so try a
+     sequence of them until the marker is actually found. */
+  var arCtl = null;
+  var THRESHOLDS = [
+    {mode:1, label:"自動（中央値）"},
+    {mode:2, label:"自動（大津）"},
+    {mode:3, label:"自動（適応）"},
+    {mode:0, value:70,  label:"手動 70"},
+    {mode:0, value:100, label:"手動 100"},
+    {mode:0, value:130, label:"手動 130"},
+    {mode:0, value:160, label:"手動 160"},
+    {mode:0, value:190, label:"手動 190"}
+  ];
+  var thrIdx = 0, thrTimer = null;
+  function applyThreshold(i){
+    if(!arCtl) return;
+    var t = THRESHOLDS[i % THRESHOLDS.length];
+    try{
+      if(arCtl.setThresholdMode) arCtl.setThresholdMode(t.mode);
+      if(t.mode === 0 && arCtl.setThreshold) arCtl.setThreshold(t.value);
+    }catch(e){}
+    return t.label;
+  }
+  function huntThreshold(){
+    if(thrTimer || !arCtl) return;
+    thrTimer = setInterval(function(){
+      if(markerSeen){ clearInterval(thrTimer); thrTimer = null; return; }
+      thrIdx++;
+      var label = applyThreshold(thrIdx);
+      if(!statHide) stat("読み取り方法を変えています（" + label + "）", false);
+    }, 3500);
+  }
+  function tuneTracking(tries){
+    tries = tries || 0;
+    try{
+      var sc = document.querySelector("a-scene");
+      var sys = sc && sc.systems && sc.systems.arjs;
+      var ses = sys && (sys._arSession || sys.arSession);
+      var ctx = ses && (ses.arContext || ses._arContext);
+      var ctl = ctx && ctx.arController;
+      if(ctl && ctl.setThresholdMode){
+        arCtl = ctl;
+        applyThreshold(0);
+        huntThreshold();
+        return;
+      }
+    }catch(e){}
+    if(tries < 20) setTimeout(function(){ tuneTracking(tries + 1); }, 500);
+  }
+  function startWatch(){
+    statEl = document.getElementById("arstat");
+    if(statEl) statEl.addEventListener("click", function(){ this.style.display = "none"; });
+    stat("カメラを準備しています…", false);
+    watchCamera(); watchScene(); tuneTracking(0);
+  }
+  document.getElementById("camx").addEventListener("click", function(){
+    document.getElementById("camnote").style.display = "none";
+  });
+  if(document.readyState === "complete"){ setTimeout(startWatch, 700); }
+  else{ window.addEventListener("load", function(){ setTimeout(startWatch, 700); }); }
+</script>
+<div id="filenote">
+  <b>ファイルから直接ひらいています</b>
+  パソコンのChromeならこのまま動きますが、スマホではカメラが使えません。
+  同じフォルダの「端末で見る方法.txt」をご覧ください。
+  <button id="filenoteX">とじる</button>
+</div>
+<script>
+  if(location.protocol === "file:"){
+    var fn = document.getElementById("filenote");
+    fn.style.display = "block";
+    document.getElementById("filenoteX").addEventListener("click", function(){ fn.style.display = "none"; });
+  }
+</script>
+<script>
+  (function(){
+    var BUILD="mtagxj66-81588a23";
+    if(!("serviceWorker" in navigator) || location.protocol.indexOf("http")!==0)return;
+    window.addEventListener("load",function(){
+      navigator.serviceWorker.register("sw.js?b="+encodeURIComponent(BUILD),{updateViaCache:"none"})
+        .then(function(reg){
+          if(reg.waiting){try{reg.waiting.postMessage({type:"SKIP_WAITING"});}catch(e){}}
+          return reg.update().catch(function(){});
+        }).catch(function(){});
+    });
+  })();
+</script>
+</body>
+</html>
